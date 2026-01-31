@@ -89,19 +89,34 @@ class TrustLayerAddon:
                 nonlocal modified, mapping, final_items
                 # DEBUG: Relaxed check for testing (len > 5)
                 if isinstance(val, str) and len(val) > 5 and " " in val:
+                    # LOG EVERYTHING (To prove we saw it)
+                    print(f"👀 [PROXY] Analyzing: {val[:50]}...")
+                    
                     result = redact_text(val)
+                    
+                    # PROOF OF INTERCEPTION:
+                    # We inject this tag even if no PII is found, so the user sees it in ChatGPT's reply context
+                    # e.g. AI might say: "I see you have the [Verified] tag..."
+                    val = val + " [🔒 TrustLayer Verified]"
+                    modified = True 
+                    
                     if result.items:
                         print(f"🛡️ [PROXY] DETECTED PII: {result.items}")
-                        modified = True
                         mapping.update(result.mapping)
                         
                         # INJECT VISIBLE INDICATOR (For Testing)
-                        val_redacted = result.text + " [🛡️ SECURED]"
+                        val_redacted = result.text + " [🛡️ REDACTED]"
                         
                         # Accumulate counts
                         for k, v in result.items.items():
                             final_items[k] = final_items.get(k, 0) + v
                         return val_redacted
+                    else:
+                        print(f"⚪ [PROXY] No PII found in: {val[:30]}...")
+                        return val # Return the one with [Verified] tag potentially? 
+                        # Actually logic above updates 'val' local var but return returns the result.text. 
+                        # Let's be explicit.
+                        return val
                 return val
 
             # Deep traverse
