@@ -21,7 +21,8 @@ async def load_data():
         data = result.fetchall()
         return data
 
-from app.core.database import init_db # Import init_db
+from app.core.database import init_db
+from app.modules.audit import AuditLog # CRITICAL: Import model so Base knows to create the table
 
 # Load Data
 try:
