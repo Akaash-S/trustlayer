@@ -161,7 +161,7 @@ class TrustLayerAddon:
                          request_id = str(uuid.uuid4())
                          for entity_type, count in final_items.items():
                              await create_audit_log(db, entity_type, count, request_id)
-                             logger.info(f"Logged {count} {entity_type}")
+                             # logger.info(f"Logged {count} {entity_type}")
                 except Exception as e:
                     logger.error(f"Audit log failed: {e}")
 
@@ -169,20 +169,59 @@ class TrustLayerAddon:
         except Exception as e:
             logger.error(f"Error processing request: {e}")
 
-    # Make response async too (good practice if request is async)
-    # OPTIMIZATION: Enable Streaming (1ms Latency)
-    # Trade-off: We cannot De-Anonymize if we stream, so user will see [PERSON_1]
+    # HYBRID STREAMING STRATEGY
+    # 1. If we redacted PII, we MUST buffer to de-anonymize the response (User wants to see real data).
+    # 2. If NO PII, we stream for maximum speed (1ms latency).
     def responseheaders(self, flow: http.HTTPFlow):
-        # Enable streaming for target hosts
+        # Check if we have pending PII to restore for this flow
+        has_pii_to_restore = flow.id in self.mappings
+        
         target_hosts = ["chat.openai.com", "chatgpt.com", "gemini.google.com", "claude.ai"]
-        if any(host in flow.request.pretty_host for host in target_hosts):
-            flow.response.stream = True
-            
-    # Remove buffering response hook to ensure speed
+        is_ai_site = any(host in flow.request.pretty_host for host in target_hosts)
+
+        if is_ai_site:
+            if has_pii_to_restore:
+                # Disable streaming to allow 'response' hook to modify body
+                flow.response.stream = False
+                # print(f"🔒 [PROXY] PII detected - Buffering response for De-anonymization")
+            else:
+                # Enable streaming for speed
+                flow.response.stream = True
+                # print(f"⚡ [PROXY] No PII - Streaming enabled")
+
     async def response(self, flow: http.HTTPFlow):
-        # Cleanup mapping if it exists (to prevent memory leak)
+        # Logic: RE-IDENTIFICATION (De-anonymization)
+        # Restore the original PII so the user sees "Sachin" instead of "[PERSON_1]"
+        
         if flow.id in self.mappings:
-            del self.mappings[flow.id]
+            mapping = self.mappings.pop(flow.id) # Retrieve and clean
+            
+            # Skip if response is not JSON/Text or too large
+            if not flow.response.content:
+                return
+                
+            try:
+                # We expect the AI to return the placeholder (e.g. [PERSON_1])
+                # We blindly replace it back.
+                
+                # Note: Handling GZIP is done by mitmproxy automatically in 'response' hook usually,
+                # but we use get_text strictly to be safe.
+                try:
+                    content = flow.response.get_text(strict=False)
+                except:
+                    content = flow.response.content.decode('utf-8', errors='ignore')
+
+                if content:
+                    # Perform restoration
+                    restored_content = deanonymize_text(content, mapping)
+                    
+                    if restored_content != content:
+                        print(f"♻️ [PROXY] Restored PII in response ({len(mapping)} verified items)")
+                        flow.response.text = restored_content
+                        # Visual Indicator (Optional - maybe user doesn't want this in response?)
+                        # flow.response.headers["X-TrustLayer-Restored"] = "True"
+            except Exception as e:
+                print(f"⚠️ [PROXY] De-anonymization error: {e}")
 
 addons = [
     TrustLayerAddon()
