@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # OpenJDK 17 is the standard LTS that works well with Tika
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    openjdk-21-jdk-headless \
+    openjdk-17-jre-headless \
     curl \
     ca-certificates-java \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
