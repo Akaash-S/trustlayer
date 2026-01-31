@@ -1,4 +1,6 @@
 import uuid
+import logging
+from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,11 +10,15 @@ from app.core.database import init_db, get_db
 from app.modules.redaction import redact_text
 from app.modules.document import extract_text
 from app.modules.audit import create_audit_log
-from app.services.llm_proxy import call_llm
+from app.services.llm_proxy import call_llm, LLMProxyError
+
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("TrustLayer")
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 
-# Security: Disable CORS for Hackathon
+# Security: Disable CORS for Hackathon (as requested)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,11 +29,16 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    await init_db()
+    try:
+        await init_db()
+        logger.info("Database initialized.")
+    except Exception as e:
+        logger.critical(f"Database initialization failed: {e}")
+        # In prod, we might want to shut down, but proper retry handling is better.
 
 @app.post("/v1/chat/completions")
 async def chat_completions(
-    prompt: str = Form(None),
+    prompt: Optional[str] = Form(None),
     file: UploadFile = File(None),
     db: AsyncSession = Depends(get_db)
 ):
@@ -36,30 +47,52 @@ async def chat_completions(
     It extracts text, redacts PII, logs the audit, and forwards to LLM.
     """
     request_id = str(uuid.uuid4())
+    logger.info(f"Processing Request ID: {request_id}")
     
     # 1. Input Handling
     raw_text = ""
-    if file:
-        file_content = await file.read()
-        raw_text = extract_text(file_buffer=file_content)
-    elif prompt:
-        raw_text = prompt
-    else:
-        raise HTTPException(status_code=400, detail="No prompt or file provided")
+    try:
+        if file:
+            logger.info(f"Processing File: {file.filename}")
+            file_content = await file.read()
+            raw_text = extract_text(file_buffer=file_content)
+        elif prompt:
+            raw_text = prompt
+        else:
+            raise HTTPException(status_code=400, detail="No prompt or file provided")
 
-    if not raw_text:
-        raise HTTPException(status_code=400, detail="Could not extract text from input")
+        if not raw_text:
+            raise HTTPException(status_code=400, detail="Could not extract text from input")
+    except Exception as e:
+        logger.error(f"Input processing failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process input")
 
     # 2. Redaction
-    redaction_result = redact_text(raw_text)
-    sanitized_text = redaction_result.text
+    try:
+        redaction_result = redact_text(raw_text)
+        sanitized_text = redaction_result.text
+    except Exception as e:
+        logger.error(f"Redaction failed: {e}")
+        raise HTTPException(status_code=500, detail="Governance Policy Failure")
     
     # 3. Audit Logging (Async)
-    for entity_type, count in redaction_result.items.items():
-        await create_audit_log(db, entity_type, count, request_id)
-    
+    # Note: Fire and forget task or await? Await ensures audit is committed.
+    try:
+        if redaction_result.items:
+            logger.info(f"Redacted Entities: {redaction_result.items}")
+            for entity_type, count in redaction_result.items.items():
+                await create_audit_log(db, entity_type, count, request_id)
+    except Exception as e:
+        logger.error(f"Audit logging failed: {e}")
+        # We proceed even if logs fail, but in strict secure environments we might fail closed.
+        # For now, we log the error.
+
     # 4. Forward to LLM
-    llm_response = await call_llm(sanitized_text)
+    try:
+        llm_response = await call_llm(sanitized_text)
+    except LLMProxyError as e:
+        logger.error(f"LLM Call failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM Provider Error: {str(e)}")
     
     return {
         "request_id": request_id,
