@@ -20,6 +20,7 @@ async def create_audit_log(db: AsyncSession, entity_type: str, count: int, reque
     db.add(db_log)
     await db.commit()
     await db.refresh(db_log)
+    print(f"✅ [AUDIT] Logged: {entity_type} ({count}) -> ID: {db_log.id}")
     return db_log
 
 async def get_audit_stats(db: AsyncSession):

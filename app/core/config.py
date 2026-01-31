@@ -9,7 +9,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = "sk-mock-key" # Default mock key for hackathon mode
     
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./trustlayer.db"
+    # Use absolute path to ensure Proxy and Streamlit share the SAME file
+    import os
+    BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/trustlayer.db"
 
     class Config:
         env_file = ".env"

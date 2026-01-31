@@ -25,14 +25,18 @@ class TrustLayerAddon:
     async def _init_db_safe(self):
         try:
             await init_db()
+            print("✅ [PROXY] DB Initialized")
             logger.info("DB Initialized for Proxy")
             
             # Create a "Startup" log event so we verify DB is writable
             async with SessionLocal() as db:
+                 print("🔄 [PROXY] Attempting to write startup log...")
                  await create_audit_log(db, "SYSTEM_STARTUP", 1, "INIT")
+                 print("✅ [PROXY] Startup log written to DB")
                  logger.info("Startup log written to DB")
                  
         except Exception as e:
+            print(f"❌ [PROXY] DB Init failed: {e}")
             logger.error(f"DB Init failed: {e}")
 
     # Make request async to support DB calls
