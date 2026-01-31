@@ -26,6 +26,12 @@ class TrustLayerAddon:
         try:
             await init_db()
             logger.info("DB Initialized for Proxy")
+            
+            # Create a "Startup" log event so we verify DB is writable
+            async with SessionLocal() as db:
+                 await create_audit_log(db, "SYSTEM_STARTUP", 1, "INIT")
+                 logger.info("Startup log written to DB")
+                 
         except Exception as e:
             logger.error(f"DB Init failed: {e}")
 

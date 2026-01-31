@@ -3,13 +3,14 @@ import asyncio
 import pandas as pd
 import plotly.express as px
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 from app.core.config import settings
+from app.core.database import init_db, SessionLocal # Use shared session factory
+from app.modules.audit import AuditLog # CRITICAL: Import model so Base knows to create the table
 
-# Database Connection (Reusing for Streamlit)
-engine = create_async_engine(settings.DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine, class_=AsyncSession)
+# Remove local engine definition to avoid locks
+# engine = create_async_engine(settings.DATABASE_URL)
+# SessionLocal = sessionmaker(bind=engine, class_=AsyncSession)
 
 st.set_page_config(page_title="TrustLayer AI Dashboard", layout="wide")
 
