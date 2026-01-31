@@ -24,6 +24,7 @@ class TrustLayerAddon:
     def __init__(self):
         self.mappings = {} # {flow_id: mapping_dict}
         logger.info("🛡️ TrustLayer DLP Proxy Active")
+        print("🚀 [DIAGNOSTIC] LOADED PROXY VERSION 2.0 (FORCE UPDATE)")
         
     def load(self, loader):
         # We need to initialize the DB. 
