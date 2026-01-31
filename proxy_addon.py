@@ -191,30 +191,25 @@ class TrustLayerAddon:
 
     def make_stream_modifier(self, flow_id):
         # Closure to capture the flow_id
-        def modifier(chunks):
+        # chunk is bytes (NOT iterable of bytes)
+        def modifier(chunk):
             mapping = self.mappings.pop(flow_id, {})
-            # debug_printed = False
             
-            for chunk in chunks:
-                try:
-                    # Attempt decode (ignore errors for partial bytes)
-                    # Note: This is a "Naive" replace. If [PERSON_1] is split across chunks, it might fail.
-                    # But it solves the Latency issue which is P0.
-                    text = chunk.decode("utf-8", "ignore")
-                    
-                    modified = False
-                    for safe, real in mapping.items():
-                        if safe in text:
-                            text = text.replace(safe, real)
-                            modified = True
-                    
-                    # if modified and not debug_printed:
-                    #     print("♻️ [PROXY] Restoring PII in stream...")
-                    #     debug_printed = True
-                        
-                    yield text.encode("utf-8")
-                except:
-                    yield chunk # Fallback
+            try:
+                # Attempt decode (ignore errors for partial bytes)
+                text = chunk.decode("utf-8", "ignore")
+                
+                modified = False
+                for safe, real in mapping.items():
+                    if safe in text:
+                        text = text.replace(safe, real)
+                        modified = True
+                
+                # Note: This yields a generator. Mitmproxy iterates it.
+                yield text.encode("utf-8")
+            except:
+                yield chunk # Fallback (Return original bytes)
+        return modifier
         return modifier
 
     async def response(self, flow: http.HTTPFlow):
