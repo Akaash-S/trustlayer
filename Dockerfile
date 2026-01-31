@@ -13,7 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Added 'ant' and 'ca-certificates-java' to ensure keystores are generated correctly.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless \
+    openjdk-21-jdk-headless \
     curl \
     ca-certificates-java \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
