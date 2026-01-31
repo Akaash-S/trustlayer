@@ -191,23 +191,35 @@ class TrustLayerAddon:
 
     def make_stream_modifier(self, flow_id):
         # Closure to capture the flow_id
-        # chunk is bytes (NOT iterable of bytes)
-        def modifier(chunk):
+        def modifier(chunks):
             mapping = self.mappings.pop(flow_id, {})
             
-            try:
-                # Attempt decode (ignore errors for partial bytes)
-                text = chunk.decode("utf-8", "ignore")
+            # Helper to process a single byte-chunk
+            def process(chunk_bytes):
+                # Protection: Ensure it is bytes
+                if not isinstance(chunk_bytes, bytes):
+                    return chunk_bytes 
                 
-                modified = False
-                for safe, real in mapping.items():
-                    if safe in text:
-                        text = text.replace(safe, real)
-                        modified = True
-                
-                # Note: This yields a generator. Mitmproxy iterates it.
-                yield text.encode("utf-8")
-                yield chunk # Fallback (Return original bytes)
+                try:
+                    text = chunk_bytes.decode("utf-8", "ignore")
+                    for safe, real in mapping.items():
+                         if safe in text:
+                             text = text.replace(safe, real)
+                    return text.encode("utf-8")
+                except:
+                    return chunk_bytes
+
+            # Handle both Single Bytes and Iterable
+            if isinstance(chunks, bytes):
+                yield process(chunks)
+            else:
+                try:
+                    for chunk in chunks:
+                        yield process(chunk)
+                except Exception as e:
+                    # If it's not iterable but not bytes?
+                    print(f"⚠️ [STREAM] Iteration Error: {e}, passing raw")
+                    yield chunks # Fallback
         return modifier
 
     async def response(self, flow: http.HTTPFlow):
