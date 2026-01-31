@@ -68,6 +68,11 @@ class TrustLayerAddon:
         if flow.request.method not in ["POST", "PUT"]:
             return
             
+        # Ignore noisy telemetry endpoints
+        ignore_keywords = ["statsc", "rgstr", "noise", "g/collect", "cdn/assets"]
+        if any(ignored in flow.request.pretty_url for ignored in ignore_keywords):
+            return
+
         try:
             # Debug: Log all POSTs to targets
             print(f"🔎 [PROXY] Inspecting POST to: {flow.request.pretty_url}")
@@ -112,7 +117,7 @@ class TrustLayerAddon:
                     modified = True 
                     
                     if result.items:
-                        print(f"🛡️ [PROXY] DETECTED PII: {result.items}")
+                        # print(f"🛡️ [PROXY] DETECTED PII: {result.items}") # <-- REMOVED SPAM
                         mapping.update(result.mapping)
                         
                         # INJECT VISIBLE INDICATOR (For Testing)
@@ -144,6 +149,7 @@ class TrustLayerAddon:
             # Debug: Force modified if we found anything (just to be safe)
             if final_items: 
                 modified = True
+                print(f"🛡️ [PROXY] DETECTED PII (Summary): {final_items}") # <-- NEW SUMMARY LOG
 
             if modified:
                 print(f"✅ [PROXY] Refracted PII in request to {flow.request.pretty_host}")
