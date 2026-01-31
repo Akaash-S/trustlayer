@@ -87,8 +87,8 @@ class TrustLayerAddon:
             # Recursive search with debug
             def process_value(val):
                 nonlocal modified, mapping, final_items
-                # DEBUG: Relaxed check for testing (len > 5)
-                if isinstance(val, str) and len(val) > 5 and " " in val:
+                # DEBUG: FORCE PROOF on almost everything
+                if isinstance(val, str) and len(val) > 1:
                     # LOG EVERYTHING (To prove we saw it)
                     print(f"👀 [PROXY] Analyzing: {val[:50]}...")
                     
