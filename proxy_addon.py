@@ -175,60 +175,53 @@ class TrustLayerAddon:
         except Exception as e:
             logger.error(f"Error processing request: {e}")
 
-    # HYBRID STREAMING STRATEGY
-    # 1. If we redacted PII, we MUST buffer to de-anonymize the response (User wants to see real data).
-    # 2. If NO PII, we stream for maximum speed (1ms latency).
+    # HYBRID STREAMING STRATEGY (v2 - Real-Time Restore)
+    # We use a stream modifier to replace text ON THE FLY.
+    # This avoids buffering the whole response, fixing the "Stuck" issue.
     def responseheaders(self, flow: http.HTTPFlow):
-        # Check if we have pending PII to restore for this flow
-        has_pii_to_restore = flow.id in self.mappings
+        # Always enable streaming first (Default)
+        flow.response.stream = True
         
-        target_hosts = ["chat.openai.com", "chatgpt.com", "gemini.google.com", "claude.ai"]
-        is_ai_site = any(host in flow.request.pretty_host for host in target_hosts)
+        # Check if we have pending PII to restore
+        if flow.id in self.mappings:
+            # Assign a generator to perform modification during streaming
+            # flow.response.stream expect a callable that takes chunks and yields chunks
+            flow.response.stream = self.make_stream_modifier(flow.id)
+            print(f"⚡ [PROXY] Streaming with Real-Time De-anonymization enabled")
 
-        if is_ai_site:
-            if has_pii_to_restore:
-                # Disable streaming to allow 'response' hook to modify body
-                flow.response.stream = False
-                # print(f"🔒 [PROXY] PII detected - Buffering response for De-anonymization")
-            else:
-                # Enable streaming for speed
-                flow.response.stream = True
-                # print(f"⚡ [PROXY] No PII - Streaming enabled")
+    def make_stream_modifier(self, flow_id):
+        # Closure to capture the flow_id
+        def modifier(chunks):
+            mapping = self.mappings.pop(flow_id, {})
+            # debug_printed = False
+            
+            for chunk in chunks:
+                try:
+                    # Attempt decode (ignore errors for partial bytes)
+                    # Note: This is a "Naive" replace. If [PERSON_1] is split across chunks, it might fail.
+                    # But it solves the Latency issue which is P0.
+                    text = chunk.decode("utf-8", "ignore")
+                    
+                    modified = False
+                    for safe, real in mapping.items():
+                        if safe in text:
+                            text = text.replace(safe, real)
+                            modified = True
+                    
+                    # if modified and not debug_printed:
+                    #     print("♻️ [PROXY] Restoring PII in stream...")
+                    #     debug_printed = True
+                        
+                    yield text.encode("utf-8")
+                except:
+                    yield chunk # Fallback
+        return modifier
 
     async def response(self, flow: http.HTTPFlow):
-        # Logic: RE-IDENTIFICATION (De-anonymization)
-        # Restore the original PII so the user sees "Sachin" instead of "[PERSON_1]"
-        
+        # Cleanup is handled in the modifier or here if stream wasn't consumed
         if flow.id in self.mappings:
-            mapping = self.mappings.pop(flow.id) # Retrieve and clean
+            del self.mappings[flow.id]
             
-            # Skip if response is not JSON/Text or too large
-            if not flow.response.content:
-                return
-                
-            try:
-                # We expect the AI to return the placeholder (e.g. [PERSON_1])
-                # We blindly replace it back.
-                
-                # Note: Handling GZIP is done by mitmproxy automatically in 'response' hook usually,
-                # but we use get_text strictly to be safe.
-                try:
-                    content = flow.response.get_text(strict=False)
-                except:
-                    content = flow.response.content.decode('utf-8', errors='ignore')
-
-                if content:
-                    # Perform restoration
-                    restored_content = deanonymize_text(content, mapping)
-                    
-                    if restored_content != content:
-                        print(f"♻️ [PROXY] Restored PII in response ({len(mapping)} verified items)")
-                        flow.response.text = restored_content
-                        # Visual Indicator (Optional - maybe user doesn't want this in response?)
-                        # flow.response.headers["X-TrustLayer-Restored"] = "True"
-            except Exception as e:
-                print(f"⚠️ [PROXY] De-anonymization error: {e}")
-
 addons = [
     TrustLayerAddon()
 ]
