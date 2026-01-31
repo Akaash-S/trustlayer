@@ -207,9 +207,7 @@ class TrustLayerAddon:
                 
                 # Note: This yields a generator. Mitmproxy iterates it.
                 yield text.encode("utf-8")
-            except:
                 yield chunk # Fallback (Return original bytes)
-        return modifier
         return modifier
 
     async def response(self, flow: http.HTTPFlow):
