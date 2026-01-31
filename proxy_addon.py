@@ -141,27 +141,19 @@ class TrustLayerAddon:
             logger.error(f"Error processing request: {e}")
 
     # Make response async too (good practice if request is async)
+    # OPTIMIZATION: Enable Streaming (1ms Latency)
+    # Trade-off: We cannot De-Anonymize if we stream, so user will see [PERSON_1]
+    def responseheaders(self, flow: http.HTTPFlow):
+        # Enable streaming for target hosts
+        target_hosts = ["chat.openai.com", "chatgpt.com", "gemini.google.com", "claude.ai"]
+        if any(host in flow.request.pretty_host for host in target_hosts):
+            flow.response.stream = True
+            
+    # Remove buffering response hook to ensure speed
     async def response(self, flow: http.HTTPFlow):
-        # Check if we have a mapping for this flow (meaning we redacted something)
+        # Cleanup mapping if it exists (to prevent memory leak)
         if flow.id in self.mappings:
-            mapping = self.mappings[flow.id]
-            try:
-                if not flow.response.content:
-                    return
-                    
-                content = flow.response.content.decode('utf-8')
-                
-                # De-Anonymize
-                restored_content = deanonymize_text(content, mapping)
-                
-                if content != restored_content:
-                    logger.info("Restored PII in response")
-                    flow.response.content = restored_content.encode('utf-8')
-                    
-                del self.mappings[flow.id]
-                
-            except Exception as e:
-                logger.error(f"Error processing response: {e}")
+            del self.mappings[flow.id]
 
 addons = [
     TrustLayerAddon()
