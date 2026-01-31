@@ -51,14 +51,20 @@ class TrustLayerAddon:
             return
             
         try:
+            # Debug: Log all POSTs to targets
+            print(f"🔎 [PROXY] Inspecting POST to: {flow.request.pretty_url}")
+            
             content = flow.request.content.decode('utf-8')
             if not content:
+                print("⚠️ [PROXY] No content in request")
                 return
 
             # Attempt JSON parsing
             try:
                 data = json.loads(content)
+                # print(f"📄 [PROXY] JSON Keys: {list(data.keys())}") # Debug structure
             except json.JSONDecodeError:
+                print("⚠️ [PROXY] Failed to parse JSON body")
                 return # Not JSON
             
             # --- ChatGPT Specific Handling ---
@@ -66,12 +72,15 @@ class TrustLayerAddon:
             mapping = {}
             final_items = {} # For Audit
             
-            # Recursive search for strings to redact (Simplified)
+            # Recursive search with debug
             def process_value(val):
                 nonlocal modified, mapping, final_items
                 if isinstance(val, str) and len(val) > 5:
+                    # Check if it looks like a message part (simple heuristic)
+                    # ChatGPT "parts" are usually strings.
                     result = redact_text(val)
                     if result.items:
+                        print(f"🛡️ [PROXY] DETECTED PII: {result.items}")
                         modified = True
                         mapping.update(result.mapping)
                         # Accumulate counts
@@ -90,9 +99,13 @@ class TrustLayerAddon:
                     return process_value(obj)
 
             new_data = traverse(data)
+            
+            # Debug: Force modified if we found anything (just to be safe)
+            if final_items: 
+                modified = True
 
             if modified:
-                logger.info(f"Refracted PII in request to {flow.request.pretty_host}")
+                print(f"✅ [PROXY] Refracted PII in request to {flow.request.pretty_host}")
                 flow.request.content = json.dumps(new_data).encode('utf-8')
                 # Store mapping for the response
                 self.mappings[flow.id] = mapping
