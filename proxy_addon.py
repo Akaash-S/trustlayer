@@ -44,8 +44,12 @@ class TrustLayerAddon:
                  logger.info("Startup log written to DB")
                  
         except Exception as e:
-            print(f"❌ [PROXY] DB Init failed: {e}")
-            logger.error(f"DB Init failed: {e}")
+            if "already exists" in str(e):
+                print("✅ [PROXY] DB already initialized (Table exists)")
+                logger.info("DB already initialized")
+            else:
+                 print(f"❌ [PROXY] DB Init failed: {e}")
+                 logger.error(f"DB Init failed: {e}")
 
     # Make request async to support DB calls
     async def request(self, flow: http.HTTPFlow):
