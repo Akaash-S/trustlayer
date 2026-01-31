@@ -10,6 +10,12 @@ if cwd not in sys.path:
 
 from mitmproxy import http
 from app.modules.redaction import redact_text, deanonymize_text
+
+# Configure simple logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("TrustLayerProxy")
+
+import asyncio
 from app.modules.audit import create_audit_log
 from app.core.database import get_db, init_db, SessionLocal
 import uuid
