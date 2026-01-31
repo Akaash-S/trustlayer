@@ -1,78 +1,122 @@
-# Deploying TrustLayer AI to Google Cloud
+# ☁️ TrustLayer Cloud Deployment Guide (Cloud Shell Edition)
 
-The connection error `4003: failed to connect to backend` usually means the application inside the VM crashed or isn't started yet.
+This guide is optimized for **Google Cloud Shell**. You don't need to install anything on your local computer initially.
 
-To fix this and give you full control, we will use the **"Manual Execution on VM"** method. This allows you to see the logs directly and ensure everything is working before connecting.
+## Architecture
+*   **Code**: Git Repository
+*   **Build**: Cloud Build (Serverless Docker Build)
+*   **Run**: Compute Engine VM (Standard Ubuntu)
+*   **Access**: IAP Tunnel (Secure connection from your laptop)
 
-## Phase 1: Create a Standard VM
-Instead of a container-VM, we will create a standard Linux VM where we have full shell access.
+---
+
+## Step 1: Open Cloud Shell
+1.  Go to [console.cloud.google.com](https://console.cloud.google.com).
+2.  Click the **Activate Cloud Shell** icon (>_) in the top right.
+3.  Set your Project ID:
+    ```bash
+    export PROJECT_ID="trustlayer-ai-suite"  # CHANGE THIS to your actual Project ID
+    gcloud config set project $PROJECT_ID
+    ```
+
+## Step 2: Get the Code
+In Cloud Shell, clone your repository (or upload it).
+```bash
+git clone https://github.com/Akaash-S/trustlayer.git
+cd trustlayer
+```
+
+## Step 3: Build & Push Container
+We use Cloud Build to create the Docker image without using local disk space.
 
 ```bash
-export PROJECT_ID="trustlayer-ai-suite"
+# Enable Services
+gcloud services enable artifactregistry.googleapis.com \
+    cloudbuild.googleapis.com \
+    compute.googleapis.com
 
-# 1. Create the VM (Standard Ubuntu)
-gcloud compute instances create trustlayer-manual-vm \
-    --project=$PROJECT_ID \
+# Create Repository (Run once)
+gcloud artifacts repositories create trustlayer-repo \
+    --repository-format=docker \
+    --location=us-central1 \
+    --description="TrustLayer Docker Repo"
+
+# Configure Docker auth
+gcloud auth configure-docker us-central1-docker.pkg.dev
+
+# BUILD IT (This takes ~2 mins)
+gcloud builds submit --tag us-central1-docker.pkg.dev/$PROJECT_ID/trustlayer-repo/trustlayer:v1 .
+```
+
+## Step 4: Create the VM
+We create a VM that allows IAP tunneling (so we can connect securely).
+
+```bash
+# Create the VM
+gcloud compute instances create trustlayer-vm \
     --zone=us-central1-a \
     --machine-type=e2-medium \
     --image-family=ubuntu-2204-lts \
     --image-project=ubuntu-os-cloud \
-    --tags=trustlayer-secure \
-    --metadata=enable-oslogin=TRUE
-```
+    --tags=trustlayer-allow-iap
 
-## Phase 2: Open Firewall for IAP
-Allow yourself to tunnel into it.
-```bash
+# Create Firewall Rule (Allow IAP)
 gcloud compute firewall-rules create allow-iap-tunnel \
     --direction=INGRESS \
     --action=ALLOW \
-    --rules=tcp:8000,tcp:8501,tcp:22 \
+    --rules=tcp:22,tcp:8000,tcp:8080,tcp:8081,tcp:8501 \
     --source-ranges=35.235.240.0/20 \
-    --target-tags=trustlayer-secure
+    --target-tags=trustlayer-allow-iap
 ```
 
-## Phase 3: Setup & Run (Inside the VM)
-Now we go inside the VM and run the code manually. This way you see errors immediately.
+## Step 5: Run TrustLayer on the VM
+Now we SSH into the VM and run the container.
 
-### 1. SSH into the VM
 ```bash
-gcloud compute ssh trustlayer-manual-vm --zone=us-central1-a
-```
+# SSH into VM
+gcloud compute ssh trustlayer-vm --zone=us-central1-a
 
-### 2. Install Dependencies (Run these inside the VM)
-```bash
-# Update and Install Docker
-sudo apt-get update
-sudo apt-get install -y docker.io git
+# --- INSIDE THE VM ---
 
-# Clone your code (or pull your docker image)
-# Option A: Pull the image you already built (EASIEST)
+# Install Docker
+sudo apt-get update && sudo apt-get install -y docker.io
+
+# Pull & Run
+export PROJECT_ID="trustlayer-ai-suite" # Set this again inside VM
 gcloud auth configure-docker us-central1-docker.pkg.dev
-sudo docker pull us-central1-docker.pkg.dev/trustlayer-ai-suite/trustlayer-repo/trustlayer:v1
 
-# Option B: Run it! (Interactive Mode to see logs)
-sudo docker run --rm -it \
+sudo docker run -d --rm \
+    --name trustlayer \
     -p 8000:8000 \
+    -p 8080:8080 \
+    -p 8081:8081 \
     -p 8501:8501 \
-    --name trustlayer-running \
-    us-central1-docker.pkg.dev/trustlayer-ai-suite/trustlayer-repo/trustlayer:v1
-```
-*Wait until you see "Uvicorn running on http://0.0.0.0:8000"*
+    us-central1-docker.pkg.dev/$PROJECT_ID/trustlayer-repo/trustlayer:v1
 
-## Phase 4: Connect from Local Machine
-**Leave the VM terminal open** (so the app keeps running).
-Open a **NEW terminal** on your laptop and run the tunnel:
+# View Logs (to verify startup)
+sudo docker logs -f trustlayer
+```
+
+## Step 6: Connect from Your Laptop
+Now, go back to **Your Local Computer Terminal** (PowerShell/CMD). You need `gcloud` installed locally for this part.
 
 ```bash
-gcloud compute start-iap-tunnel trustlayer-manual-vm 8000 \
-    --local-host-port=localhost:8000 \
+# 1. Login locally
+gcloud auth login
+
+# 2. Start the Tunnel (Forwarding Proxy Port 8080)
+gcloud compute start-iap-tunnel trustlayer-vm 8080 \
+    --local-host-port=localhost:8080 \
     --zone=us-central1-a \
     --project=$PROJECT_ID
 ```
+*Keep this terminal open!*
 
-Now try opening [http://localhost:8000/docs](http://localhost:8000/docs).
+## Step 7: Final Setup
+1.  **Configure System Proxy**: Set your Windows/Browser proxy to `localhost:8080`.
+2.  **Install Certificate**:
+    *   Open `http://mitm.it` (It should load now!).
+    *   Install the cert as usual.
+3.  **Browse**: Go to ChatGPT.
 
-## Debugging Tips
-- If `docker run` fails, you will see exactly why (e.g., "Address already in use" or "Java not found").
-- If the tunnel still fails, ensure your VM's internal firewall (`ufw`) isn't blocking ports, though on GCP Ubuntu images it usually allows internal traffic.
+**Done!** You are now using a Cloud-based AI Firewall.
