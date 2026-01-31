@@ -35,11 +35,8 @@ COPY . .
 # Expose ports
 EXPOSE 8000 8501
 
-# Start script
-RUN echo "#!/bin/bash\n\
-uvicorn app.main:app --host 0.0.0.0 --port 8000 & \n\
-streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0 & \n\
-wait -n\n\
-exit $?" > /app/start.sh && chmod +x /app/start.sh
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 CMD ["/app/start.sh"]
