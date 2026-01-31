@@ -15,6 +15,9 @@ RUN apt-get update && \
     ca-certificates-java \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Fix: Create Tika log directory and ensure permissions
+RUN mkdir -p /var/log/tika && chmod 777 /var/log/tika
+
 # Set work directory
 WORKDIR /app
 

@@ -1,36 +1,28 @@
-# Deploying TrustLayer AI to Google Cloud Compute Engine
+# Deploying TrustLayer AI to Google Cloud
 
-## Phase 1: Build Image (Already Done)
-*You have successfully built the image: `us-central1-docker.pkg.dev/trustlayer-ai-suite/trustlayer-repo/trustlayer:v1`*
+The connection error `4003: failed to connect to backend` usually means the application inside the VM crashed or isn't started yet.
 
----
+To fix this and give you full control, we will use the **"Manual Execution on VM"** method. This allows you to see the logs directly and ensure everything is working before connecting.
 
-## Phase 2: Deploy the Secure Gateway
-We will create a VM that runs this image. To make it "unbypassable" and secure, we will **NOT** give it a public IP address (or we will blocking incoming traffic) and connect via **Google Identity-Aware Proxy (IAP)**. This simulates a secure corporate VPN.
-
-### 1. Create the VM
-Run this command in your Cloud Shell or Terminal:
+## Phase 1: Create a Standard VM
+Instead of a container-VM, we will create a standard Linux VM where we have full shell access.
 
 ```bash
-# Set your Project ID
 export PROJECT_ID="trustlayer-ai-suite"
 
-# Create the VM (Container Optimized)
-# We add 'no-address' to prevent public internet access if you have a Cloud NAT enabled.
-# If you don't have Cloud NAT, remove '--no-address' but we will rely on IAP for access.
-gcloud compute instances create-with-container trustlayer-vm \
+# 1. Create the VM (Standard Ubuntu)
+gcloud compute instances create trustlayer-manual-vm \
     --project=$PROJECT_ID \
     --zone=us-central1-a \
     --machine-type=e2-medium \
-    --container-image=us-central1-docker.pkg.dev/$PROJECT_ID/trustlayer-repo/trustlayer:v1 \
+    --image-family=ubuntu-2204-lts \
+    --image-project=ubuntu-os-cloud \
     --tags=trustlayer-secure \
-    --network-interface=network-tier=PREMIUM,subnet=default \
-    --metadata=google-logging-enabled=true
+    --metadata=enable-oslogin=TRUE
 ```
 
-### 2. Configure Firewall for IAP
-Allow Google's IAP range to reach your VM.
-
+## Phase 2: Open Firewall for IAP
+Allow yourself to tunnel into it.
 ```bash
 gcloud compute firewall-rules create allow-iap-tunnel \
     --direction=INGRESS \
@@ -40,43 +32,47 @@ gcloud compute firewall-rules create allow-iap-tunnel \
     --target-tags=trustlayer-secure
 ```
 
----
+## Phase 3: Setup & Run (Inside the VM)
+Now we go inside the VM and run the code manually. This way you see errors immediately.
 
-## Phase 3: Connect Securely (The "VPN" Experience)
-Now, instead of accessing a public URL (which anyone could attack), you will create a secure "tunnel" from your local laptop to the TrustLayer VPC.
+### 1. SSH into the VM
+```bash
+gcloud compute ssh trustlayer-manual-vm --zone=us-central1-a
+```
 
-### 1. Start the Secure Tunnel
-Run this command on your **Local Machine**:
+### 2. Install Dependencies (Run these inside the VM)
+```bash
+# Update and Install Docker
+sudo apt-get update
+sudo apt-get install -y docker.io git
+
+# Clone your code (or pull your docker image)
+# Option A: Pull the image you already built (EASIEST)
+gcloud auth configure-docker us-central1-docker.pkg.dev
+sudo docker pull us-central1-docker.pkg.dev/trustlayer-ai-suite/trustlayer-repo/trustlayer:v1
+
+# Option B: Run it! (Interactive Mode to see logs)
+sudo docker run --rm -it \
+    -p 8000:8000 \
+    -p 8501:8501 \
+    --name trustlayer-running \
+    us-central1-docker.pkg.dev/trustlayer-ai-suite/trustlayer-repo/trustlayer:v1
+```
+*Wait until you see "Uvicorn running on http://0.0.0.0:8000"*
+
+## Phase 4: Connect from Local Machine
+**Leave the VM terminal open** (so the app keeps running).
+Open a **NEW terminal** on your laptop and run the tunnel:
 
 ```bash
-gcloud compute start-iap-tunnel trustlayer-vm 8000 \
+gcloud compute start-iap-tunnel trustlayer-manual-vm 8000 \
     --local-host-port=localhost:8000 \
     --zone=us-central1-a \
     --project=$PROJECT_ID
 ```
-*Keep this terminal window open!*
 
-### 2. Verify Connection
-Now, your **Localhost:8000** is magically forwarded to the **Cloud VM**.
+Now try opening [http://localhost:8000/docs](http://localhost:8000/docs).
 
-1.  Open your browser to: [http://localhost:8000/docs](http://localhost:8000/docs)
-2.  You are now securely connected to the VPC!
-
-### 3. Connect the Dashboard (Optional)
-Open a **second terminal** and create a tunnel for the dashboard:
-
-```bash
-gcloud compute start-iap-tunnel trustlayer-vm 8501 \
-    --local-host-port=localhost:8501 \
-    --zone=us-central1-a \
-    --project=$PROJECT_ID
-```
-Now access dashboard at: [http://localhost:8501](http://localhost:8501)
-
----
-
-## Phase 4: Enforce Usage (The "Unbypassable" Part)
-To make this truly unbypassable in an enterprise setting, you would:
-1.  **Block OpenAI**: On your corporate firewall, BLOCK `api.openai.com` for all employees.
-2.  **Allow TrustLayer**: Only allow the `trustlayer-vm` (via its Service Account) to reach `api.openai.com`.
-3.  **Result**: Employees *must* use your localhost tunnel (TrustLayer) to get answers. They cannot go direct.
+## Debugging Tips
+- If `docker run` fails, you will see exactly why (e.g., "Address already in use" or "Java not found").
+- If the tunnel still fails, ensure your VM's internal firewall (`ufw`) isn't blocking ports, though on GCP Ubuntu images it usually allows internal traffic.
