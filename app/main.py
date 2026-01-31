@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import init_db, get_db
-from app.modules.redaction import redact_text
+from app.modules.redaction import redact_text, deanonymize_text # Updated import
 from app.modules.document import extract_text
 from app.modules.audit import create_audit_log
 from app.services.llm_proxy import call_llm, LLMProxyError
@@ -71,6 +71,8 @@ async def chat_completions(
     try:
         redaction_result = redact_text(raw_text)
         sanitized_text = redaction_result.text
+        # We hold the mapping in memory for this request
+        deanonymize_map = redaction_result.mapping 
     except Exception as e:
         logger.error(f"Redaction failed: {e}")
         raise HTTPException(status_code=500, detail="Governance Policy Failure")
@@ -89,17 +91,21 @@ async def chat_completions(
 
     # 4. Forward to LLM
     try:
-        llm_response = await call_llm(sanitized_text)
+        llm_response_sanitized = await call_llm(sanitized_text)
     except LLMProxyError as e:
         logger.error(f"LLM Call failed: {e}")
         raise HTTPException(status_code=502, detail=f"LLM Provider Error: {str(e)}")
+        
+    # 5. De-Anonymize Response (The Magic Step)
+    # Restores [PERSON_1] -> John Doe in the final answer so user feels it's normal.
+    final_response = deanonymize_text(llm_response_sanitized, deanonymize_map)
     
     return {
         "request_id": request_id,
         "original_length": len(raw_text),
         "sanitized_length": len(sanitized_text),
         "redacted_entities": redaction_result.items,
-        "llm_response": llm_response
+        "llm_response": final_response # User receives "normal" text
     }
 
 @app.get("/health")

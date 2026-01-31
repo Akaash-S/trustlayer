@@ -3,37 +3,61 @@ from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
 # Initialize engines
-# Note: Ensure spacy model is downloaded: python -m spacy download en_core_web_lg
 analyzer = AnalyzerEngine()
 anonymizer = AnonymizerEngine()
 
 class RedactionResult:
-    def __init__(self, text: str, items: dict):
+    def __init__(self, text: str, items: dict, mapping: dict):
         self.text = text
         self.items = items # {entity_type: count}
+        self.mapping = mapping # {token: original_value}
 
 def redact_text(text: str) -> RedactionResult:
     # 1. Analyze
     results = analyzer.analyze(text=text, language='en')
     
-    # 2. Count entities for Audit
+    # 2. Count entities and Build Mapping
     entity_counts = {}
-    for res in results:
-        entity_counts[res.entity_type] = entity_counts.get(res.entity_type, 0) + 1
-
-    # 3. Anonymize
-    # We want to replace with [ENTITY_TYPE]
-    operators = {
-        "PERSON": OperatorConfig("replace", {"new_value": "[PERSON]"}),
-        "EMAIL_ADDRESS": OperatorConfig("replace", {"new_value": "[EMAIL]"}),
-        "PHONE_NUMBER": OperatorConfig("replace", {"new_value": "[PHONE]"}),
-        "DEFAULT": OperatorConfig("replace", {"new_value": "[PII]"}),
-    }
+    mapping = {}
     
-    anonymized_result = anonymizer.anonymize(
-        text=text,
-        analyzer_results=results,
-        operators=operators
-    )
+    # We need to sort results by start index in reverse to replace without messing up indices
+    sorted_results = sorted(results, key=lambda x: x.start, reverse=True)
+    
+    # Manual replacement to build mapping (Presidio Deanonymize is complex, manual is robust for simple cases)
+    # We will use simple sequential tokens: [PERSON_1], [EMAIL_1]
+    
+    working_text = text
+    type_counters = {} # {PERSON: 1, EMAIL: 1}
+    
+    final_items = {} # For Audit log
 
-    return RedactionResult(anonymized_result.text, entity_counts)
+    for res in sorted_results:
+        entity_type = res.entity_type
+        original_value = text[res.start:res.end]
+        
+        # Update counters
+        type_counters[entity_type] = type_counters.get(entity_type, 0) + 1
+        count = type_counters[entity_type]
+        
+        # Create Token
+        token = f"[{entity_type}_{count}]"
+        
+        # Store Mapping
+        mapping[token] = original_value
+        
+        # Replace in text (string slicing)
+        working_text = working_text[:res.start] + token + working_text[res.end:]
+        
+        # Update Audit Counts
+        final_items[entity_type] = final_items.get(entity_type, 0) + 1
+
+    return RedactionResult(working_text, final_items, mapping)
+
+def deanonymize_text(text: str, mapping: dict) -> str:
+    """
+    Restores the original values in the LLM response.
+    """
+    working_text = text
+    for token, original_value in mapping.items():
+        working_text = working_text.replace(token, original_value)
+    return working_text
