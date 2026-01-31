@@ -87,9 +87,11 @@ class TrustLayerAddon:
             # Recursive search with debug
             def process_value(val):
                 nonlocal modified, mapping, final_items
-                if isinstance(val, str) and len(val) > 5:
+                # OPTIMIZATION: Only run NLP on "Sentences"
+                # Heuristic: Must be > 15 chars and contain a space. 
+                # (Skipping IDs, UUIDs, Keys, and short codes saves ~500ms)
+                if isinstance(val, str) and len(val) > 15 and " " in val:
                     # Check if it looks like a message part (simple heuristic)
-                    # ChatGPT "parts" are usually strings.
                     result = redact_text(val)
                     if result.items:
                         print(f"🛡️ [PROXY] DETECTED PII: {result.items}")
