@@ -24,6 +24,8 @@ class TrustLayerAddon:
     def __init__(self):
         self.mappings = {} # {flow_id: mapping_dict}
         logger.info("🛡️ TrustLayer DLP Proxy Active")
+        # Silence Presidio noise
+        logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
         print("🚀 [DIAGNOSTIC] LOADED PROXY VERSION 2.0 (FORCE UPDATE)")
         
     def load(self, loader):
@@ -100,13 +102,12 @@ class TrustLayerAddon:
                 # DEBUG: FORCE PROOF on almost everything
                 if isinstance(val, str) and len(val) > 1:
                     # LOG EVERYTHING (To prove we saw it)
-                    print(f"👀 [PROXY] Analyzing: {val[:50]}...")
+                    # print(f"👀 [PROXY] Analyzing: {val[:50]}...")
                     
                     result = redact_text(val)
                     
                     # PROOF OF INTERCEPTION:
                     # We inject this tag even if no PII is found, so the user sees it in ChatGPT's reply context
-                    # e.g. AI might say: "I see you have the [Verified] tag..."
                     val = val + " [🔒 TrustLayer Verified]"
                     modified = True 
                     
@@ -122,7 +123,7 @@ class TrustLayerAddon:
                             final_items[k] = final_items.get(k, 0) + v
                         return val_redacted
                     else:
-                        print(f"⚪ [PROXY] No PII found in: {val[:30]}...")
+                        # print(f"⚪ [PROXY] No PII found in: {val[:30]}...")
                         return val # Return the one with [Verified] tag potentially? 
                         # Actually logic above updates 'val' local var but return returns the result.text. 
                         # Let's be explicit.
