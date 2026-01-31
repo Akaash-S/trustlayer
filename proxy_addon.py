@@ -70,9 +70,15 @@ class TrustLayerAddon:
             # Debug: Log all POSTs to targets
             print(f"🔎 [PROXY] Inspecting POST to: {flow.request.pretty_url}")
             
-            content = flow.request.content.decode('utf-8')
+            try:
+                # Fix: Use get_text() to handle GZIP/Brotli compression automatically
+                content = flow.request.get_text(strict=False)
+            except Exception as e:
+                print(f"⚠️ [PROXY] Failed to decode content (Binary?): {e}")
+                return
+
             if not content:
-                print("⚠️ [PROXY] No content in request")
+                print(f"⚠️ [PROXY] No content in request (Length: {len(flow.request.content)})")
                 return
 
             # Attempt JSON parsing
