@@ -1,0 +1,25 @@
+{
+    "name": "TrustLayer AI - Codespace",
+    "image": "mcr.microsoft.com/devcontainers/python:3.10",
+    "features": {
+        "ghcr.io/devcontainers/features/java:1": {
+            "version": "17",
+            "installGradle": false,
+            "installMaven": false
+        },
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    },
+    "postCreateCommand": "pip install -r requirements.txt && python -m spacy download en_core_web_lg",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-toolsai.jupyter"
+            ]
+        }
+    },
+    "forwardPorts": [
+        8000,
+        8501
+    ]
+}
