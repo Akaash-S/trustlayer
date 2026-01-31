@@ -87,20 +87,21 @@ class TrustLayerAddon:
             # Recursive search with debug
             def process_value(val):
                 nonlocal modified, mapping, final_items
-                # OPTIMIZATION: Only run NLP on "Sentences"
-                # Heuristic: Must be > 15 chars and contain a space. 
-                # (Skipping IDs, UUIDs, Keys, and short codes saves ~500ms)
-                if isinstance(val, str) and len(val) > 15 and " " in val:
-                    # Check if it looks like a message part (simple heuristic)
+                # DEBUG: Relaxed check for testing (len > 5)
+                if isinstance(val, str) and len(val) > 5 and " " in val:
                     result = redact_text(val)
                     if result.items:
                         print(f"🛡️ [PROXY] DETECTED PII: {result.items}")
                         modified = True
                         mapping.update(result.mapping)
+                        
+                        # INJECT VISIBLE INDICATOR (For Testing)
+                        val_redacted = result.text + " [🛡️ SECURED]"
+                        
                         # Accumulate counts
                         for k, v in result.items.items():
                             final_items[k] = final_items.get(k, 0) + v
-                        return result.text
+                        return val_redacted
                 return val
 
             # Deep traverse
