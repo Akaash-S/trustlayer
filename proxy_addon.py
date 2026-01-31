@@ -7,12 +7,30 @@ from app.modules.redaction import redact_text, deanonymize_text
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TrustLayerProxy")
 
+import asyncio
+from app.modules.audit import create_audit_log
+from app.core.database import get_db, init_db, SessionLocal
+import uuid
+
 class TrustLayerAddon:
     def __init__(self):
         self.mappings = {} # {flow_id: mapping_dict}
         logger.info("🛡️ TrustLayer DLP Proxy Active")
+        
+    def load(self, loader):
+        # We need to initialize the DB. 
+        # Since load is sync, we schedule it.
+        asyncio.create_task(self._init_db_safe())
 
-    def request(self, flow: http.HTTPFlow):
+    async def _init_db_safe(self):
+        try:
+            await init_db()
+            logger.info("DB Initialized for Proxy")
+        except Exception as e:
+            logger.error(f"DB Init failed: {e}")
+
+    # Make request async to support DB calls
+    async def request(self, flow: http.HTTPFlow):
         # Filter for AI Sites (Basic list)
         target_hosts = ["chat.openai.com", "chatgpt.com", "gemini.google.com", "claude.ai"]
         if not any(host in flow.request.pretty_host for host in target_hosts):
@@ -34,26 +52,25 @@ class TrustLayerAddon:
                 return # Not JSON
             
             # --- ChatGPT Specific Handling ---
-            # Structure usually: {"messages": [{"content": {"parts": ["text"]}}]}
             modified = False
             mapping = {}
+            final_items = {} # For Audit
             
-            # Recursive search for strings to redact (Simplified for Hackathon)
-            # In a real DLP, we'd traverse the whole JSON tree carefully.
-            # Here we just look for common "prompt" keys or dump the whole structure if small.
-            
-            # Helper to redact a string value and store mapping
+            # Recursive search for strings to redact (Simplified)
             def process_value(val):
-                nonlocal modified, mapping
+                nonlocal modified, mapping, final_items
                 if isinstance(val, str) and len(val) > 5:
                     result = redact_text(val)
                     if result.items:
                         modified = True
                         mapping.update(result.mapping)
+                        # Accumulate counts
+                        for k, v in result.items.items():
+                            final_items[k] = final_items.get(k, 0) + v
                         return result.text
                 return val
 
-            # Deep traverse to find text fields
+            # Deep traverse
             def traverse(obj):
                 if isinstance(obj, dict):
                     return {k: traverse(v) for k, v in obj.items()}
@@ -70,13 +87,26 @@ class TrustLayerAddon:
                 # Store mapping for the response
                 self.mappings[flow.id] = mapping
                 
-                # Visual Indicator in Header (so user knows)
+                # Visual Indicator in Header
                 flow.request.headers["X-TrustLayer-Status"] = "Sanitized"
+                
+                # --- AUDIT LOGGING ---
+                try:
+                    # Create a new session for this log
+                    async with SessionLocal() as db:
+                         request_id = str(uuid.uuid4())
+                         for entity_type, count in final_items.items():
+                             await create_audit_log(db, entity_type, count, request_id)
+                             logger.info(f"Logged {count} {entity_type}")
+                except Exception as e:
+                    logger.error(f"Audit log failed: {e}")
+
 
         except Exception as e:
             logger.error(f"Error processing request: {e}")
 
-    def response(self, flow: http.HTTPFlow):
+    # Make response async too (good practice if request is async)
+    async def response(self, flow: http.HTTPFlow):
         # Check if we have a mapping for this flow (meaning we redacted something)
         if flow.id in self.mappings:
             mapping = self.mappings[flow.id]
@@ -86,15 +116,13 @@ class TrustLayerAddon:
                     
                 content = flow.response.content.decode('utf-8')
                 
-                # De-Anonymize the whole body text
-                # (Simple string replacement is okay here since tokens are unique)
+                # De-Anonymize
                 restored_content = deanonymize_text(content, mapping)
                 
                 if content != restored_content:
                     logger.info("Restored PII in response")
                     flow.response.content = restored_content.encode('utf-8')
                     
-                # Cleanup
                 del self.mappings[flow.id]
                 
             except Exception as e:

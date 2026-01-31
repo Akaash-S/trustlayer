@@ -21,10 +21,16 @@ async def load_data():
         data = result.fetchall()
         return data
 
+from app.core.database import init_db # Import init_db
+
 # Load Data
 try:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
+    # Initialize DB (Create tables if they don't exist)
+    loop.run_until_complete(init_db())
+    
     data = loop.run_until_complete(load_data())
     
     if data:
