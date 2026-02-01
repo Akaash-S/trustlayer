@@ -66,12 +66,10 @@ class TrustLayerAddon:
             return
             
         # Ignore noisy telemetry endpoints (Refined)
-        # We also ignore 'backend-anon' and 'autocompletions' to avoid intercepting UUIDs/Partial states
-        # Ignore noisy telemetry endpoints (Refined)
         ignore_keywords = [
             "statsc", "rgstr", "noise", "g/collect", "cdn/assets", 
             "/ces/", "analytics", "metrics", "events", "timings",
-            "generate_autocompletions" 
+            "generate_autocompletions", "f/conversation/prepare"
         ]
         
         for ignored in ignore_keywords:
