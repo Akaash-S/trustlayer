@@ -23,10 +23,10 @@ import uuid
 class TrustLayerAddon:
     def __init__(self):
         self.mappings = {} # {flow_id: mapping_dict}
-        logger.info("🛡️ TrustLayer DLP Proxy Active")
+        logger.info("[INFO] TrustLayer DLP Proxy Active")
         # Silence Presidio noise
         logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
-        print("🚀 [DIAGNOSTIC] LOADED PROXY VERSION 2.0 (FORCE UPDATE)")
+        print("[DIAGNOSTIC] LOADED PROXY VERSION 2.0 (FORCE UPDATE)")
         
     def load(self, loader):
         # We need to initialize the DB. 
@@ -36,14 +36,14 @@ class TrustLayerAddon:
     async def _init_db_safe(self):
         try:
             await init_db()
-            print("✅ [PROXY] DB Initialized")
+            print("[PROXY] DB Initialized")
             logger.info("DB Initialized for Proxy")
             
             # Create a "Startup" log event so we verify DB is writable
             async with SessionLocal() as db:
-                 print("🔄 [PROXY] Attempting to write startup log...")
+                 print("[PROXY] Attempting to write startup log...")
                  await create_audit_log(db, "SYSTEM_STARTUP", 1, "INIT")
-                 print("✅ [PROXY] Startup log written to DB")
+                 print("[PROXY] Startup log written to DB")
                  logger.info("Startup log written to DB")
                  
         except Exception as e:
@@ -51,7 +51,7 @@ class TrustLayerAddon:
                 print("✅ [PROXY] DB already initialized (Table exists)")
                 logger.info("DB already initialized")
             else:
-                 print(f"❌ [PROXY] DB Init failed: {e}")
+                 print(f"[ERROR] [PROXY] DB Init failed: {e}")
                  logger.error(f"DB Init failed: {e}")
 
     # Make request async to support DB calls
@@ -62,30 +62,33 @@ class TrustLayerAddon:
         #    return
         
         # Log that we see traffic at all
-        print(f"👀 [PROXY SEES] {flow.request.method} {flow.request.pretty_url}")
+        print(f"[PROXY SEES] {flow.request.method} {flow.request.pretty_url}")
 
         # Only check POST/PUT (Sending data)
         if flow.request.method not in ["POST", "PUT"]:
             return
             
-        # Ignore noisy telemetry endpoints
-        ignore_keywords = ["statsc", "rgstr", "noise", "g/collect", "cdn/assets"]
+        # Ignore noisy telemetry endpoints (Refined)
+        ignore_keywords = [
+            "statsc", "rgstr", "noise", "g/collect", "cdn/assets", 
+            "/ces/", "analytics", "metrics", "events", "timings"
+        ]
         if any(ignored in flow.request.pretty_url for ignored in ignore_keywords):
             return
 
         try:
             # Debug: Log all POSTs to targets
-            print(f"🔎 [PROXY] Inspecting POST to: {flow.request.pretty_url}")
+            print(f"[PROXY] Inspecting POST to: {flow.request.pretty_url}")
             
             try:
                 # Fix: Use get_text() to handle GZIP/Brotli compression automatically
                 content = flow.request.get_text(strict=False)
             except Exception as e:
-                print(f"⚠️ [PROXY] Failed to decode content (Binary?): {e}")
+                print(f"[WARN] [PROXY] Failed to decode content (Binary?): {e}")
                 return
 
             if not content:
-                print(f"⚠️ [PROXY] No content in request (Length: {len(flow.request.content)})")
+                print(f"[WARN] [PROXY] No content in request (Length: {len(flow.request.content)})")
                 return
 
             # Attempt JSON parsing
@@ -93,7 +96,7 @@ class TrustLayerAddon:
                 data = json.loads(content)
                 # print(f"📄 [PROXY] JSON Keys: {list(data.keys())}") # Debug structure
             except json.JSONDecodeError:
-                print("⚠️ [PROXY] Failed to parse JSON body")
+                print("[WARN] [PROXY] Failed to parse JSON body")
                 return # Not JSON
             
             # --- ChatGPT Specific Handling ---
@@ -113,7 +116,7 @@ class TrustLayerAddon:
                     
                     # PROOF OF INTERCEPTION:
                     # We inject this tag even if no PII is found, so the user sees it in ChatGPT's reply context
-                    val = val + " [🔒 TrustLayer Verified]"
+                    val = val + " [TrustLayer Verified]"
                     modified = True 
                     
                     if result.items:
@@ -123,8 +126,8 @@ class TrustLayerAddon:
                         mapping.update(result.mapping)
                         
                         # INJECT VISIBLE INDICATOR (For Testing)
-                        val_redacted = result.text + " [🛡️ REDACTED]"
-                        print(f"🔒 [REDACTED PROMPT] {val_redacted}")
+                        val_redacted = result.text + " [REDACTED]"
+                        print(f"[REDACTED PROMPT] {val_redacted}")
                         
                         # Accumulate counts
                         for k, v in result.items.items():
@@ -152,10 +155,10 @@ class TrustLayerAddon:
             # Debug: Force modified if we found anything (just to be safe)
             if final_items: 
                 modified = True
-                print(f"🛡️ [PROXY] DETECTED PII (Summary): {final_items}") # <-- NEW SUMMARY LOG
+                print(f"[PROXY] DETECTED PII (Summary): {final_items}") # <-- NEW SUMMARY LOG
 
             if modified:
-                print(f"✅ [PROXY] Refracted PII in request to {flow.request.pretty_host}")
+                print(f"[PROXY] Refracted PII in request to {flow.request.pretty_host}")
                 flow.request.content = json.dumps(new_data).encode('utf-8')
                 # Store mapping for the response
                 self.mappings[flow.id] = mapping
@@ -190,7 +193,7 @@ class TrustLayerAddon:
             # Assign a generator to perform modification during streaming
             # flow.response.stream expect a callable that takes chunks and yields chunks
             flow.response.stream = self.make_stream_modifier(flow.id)
-            print(f"⚡ [PROXY] Streaming with Real-Time De-anonymization enabled")
+            print(f"[PROXY] Streaming with Real-Time De-anonymization enabled")
 
     def make_stream_modifier(self, flow_id):
         # Closure to capture the flow_id
@@ -208,7 +211,7 @@ class TrustLayerAddon:
                     for safe, real in mapping.items():
                          if safe in text:
                              text = text.replace(safe, real)
-                             print(f"♻️ [AI RESPONSE] Restored: '{safe}' -> '{real}'")
+                             print(f"[AI RESPONSE] Restored: '{safe}' -> '{real}'")
                     return text.encode("utf-8")
                 except:
                     return chunk_bytes
@@ -222,7 +225,7 @@ class TrustLayerAddon:
                         yield process(chunk)
                 except Exception as e:
                     # If it's not iterable but not bytes?
-                    print(f"⚠️ [STREAM] Iteration Error: {e}, passing raw")
+                    print(f"[STREAM] Iteration Error: {e}, passing raw")
                     yield chunks # Fallback
         return modifier
 
