@@ -21,7 +21,20 @@ class RedactionResult:
         self.items = items # {entity_type: count}
         self.mapping = mapping # {token: original_value}
 
+import re
+
+# Regex for UUIDs (common source of false positives)
+UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+# Regex for MongoDB ObjectIDs or simple Hashes (24 hex chars)
+HASH_PATTERN = re.compile(r'^[0-9a-f]{24,}$', re.IGNORECASE)
+
 def redact_text(text: str) -> RedactionResult:
+    # 0. Safeguard: Ignore machine IDs
+    if len(text) > 20: 
+        if UUID_PATTERN.match(text) or HASH_PATTERN.match(text):
+             # It's an ID, not a sentence. Skip.
+             return RedactionResult(text, {}, {})
+
     # 1. Analyze
     results = analyzer.analyze(text=text, language='en')
     
