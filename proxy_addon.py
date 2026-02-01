@@ -138,8 +138,12 @@ class TrustLayerAddon:
                             final_items[k] = final_items.get(k, 0) + v
                         return val_redacted
                     else:
-                        # print(f"⚪ [PROXY] No PII found in: {val[:30]}...")
-                        return val # Return the one with [Verified] tag potentially? 
+                        # Even if No PII, log it IF it looks like a real prompt (heuristic)
+                        # Avoid logging tiny metadata strings e.g "en-US", "auto"
+                        if len(val) > 4 and " " in val:
+                             print(f"[USER PROMPT] {val}")
+                             
+                        return val # Return the one with [Verified] tag 
                         # Actually logic above updates 'val' local var but return returns the result.text. 
                         # Let's be explicit.
                         return val
