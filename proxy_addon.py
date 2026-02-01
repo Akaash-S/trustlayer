@@ -61,20 +61,23 @@ class TrustLayerAddon:
         # if not any(host in flow.request.pretty_host for host in target_hosts):
         #    return
         
-        # Log that we see traffic at all
-        print(f"[PROXY SEES] {flow.request.method} {flow.request.pretty_url}")
-
         # Only check POST/PUT (Sending data)
         if flow.request.method not in ["POST", "PUT"]:
             return
             
         # Ignore noisy telemetry endpoints (Refined)
+        # We also ignore 'backend-anon' and 'autocompletions' to avoid intercepting UUIDs/Partial states
         ignore_keywords = [
             "statsc", "rgstr", "noise", "g/collect", "cdn/assets", 
-            "/ces/", "analytics", "metrics", "events", "timings"
+            "/ces/", "analytics", "metrics", "events", "timings",
+            "generate_autocompletions", "backend-anon", "f/conversation/prepare" 
         ]
+        
         if any(ignored in flow.request.pretty_url for ignored in ignore_keywords):
             return
+
+        # Log that we see RELEVANT traffic
+        print(f"[PROXY SEES] {flow.request.method} {flow.request.pretty_url}")
 
         try:
             # Debug: Log all POSTs to targets
@@ -121,7 +124,7 @@ class TrustLayerAddon:
                     
                     if result.items:
                         # LOGGING: ORIGINAL vs REDACTED
-                        print(f"� [USER PROMPT] {val}")
+                        print(f"[USER PROMPT] {val}")
                         
                         mapping.update(result.mapping)
                         
