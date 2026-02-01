@@ -56,10 +56,10 @@ class TrustLayerAddon:
 
     # Make request async to support DB calls
     async def request(self, flow: http.HTTPFlow):
-        # DEBUG: Promiscuous Mode (Log EVERYTHING)
-        # target_hosts = ["chat.openai.com", "chatgpt.com", "gemini.google.com", "claude.ai"]
-        # if not any(host in flow.request.pretty_host for host in target_hosts):
-        #    return
+        # Restriction: Only inspect traffic to AI Chat providers
+        target_hosts = ["chat.openai.com", "chatgpt.com", "gemini.google.com", "claude.ai", "openai.com"]
+        if not any(host in flow.request.pretty_host for host in target_hosts):
+           return
         
         # Only check POST/PUT (Sending data)
         if flow.request.method not in ["POST", "PUT"]:
