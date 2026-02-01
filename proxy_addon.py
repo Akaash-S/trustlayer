@@ -117,11 +117,14 @@ class TrustLayerAddon:
                     modified = True 
                     
                     if result.items:
-                        # print(f"🛡️ [PROXY] DETECTED PII: {result.items}") # <-- REMOVED SPAM
+                        # LOGGING: ORIGINAL vs REDACTED
+                        print(f"� [USER PROMPT] {val}")
+                        
                         mapping.update(result.mapping)
                         
                         # INJECT VISIBLE INDICATOR (For Testing)
                         val_redacted = result.text + " [🛡️ REDACTED]"
+                        print(f"🔒 [REDACTED PROMPT] {val_redacted}")
                         
                         # Accumulate counts
                         for k, v in result.items.items():
@@ -205,6 +208,7 @@ class TrustLayerAddon:
                     for safe, real in mapping.items():
                          if safe in text:
                              text = text.replace(safe, real)
+                             print(f"♻️ [AI RESPONSE] Restored: '{safe}' -> '{real}'")
                     return text.encode("utf-8")
                 except:
                     return chunk_bytes
