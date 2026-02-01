@@ -67,14 +67,17 @@ class TrustLayerAddon:
             
         # Ignore noisy telemetry endpoints (Refined)
         # We also ignore 'backend-anon' and 'autocompletions' to avoid intercepting UUIDs/Partial states
+        # Ignore noisy telemetry endpoints (Refined)
         ignore_keywords = [
             "statsc", "rgstr", "noise", "g/collect", "cdn/assets", 
             "/ces/", "analytics", "metrics", "events", "timings",
-            "generate_autocompletions", "backend-anon", "f/conversation/prepare" 
+            "generate_autocompletions" 
         ]
         
-        if any(ignored in flow.request.pretty_url for ignored in ignore_keywords):
-            return
+        for ignored in ignore_keywords:
+            if ignored in flow.request.pretty_url:
+                # print(f"[PROXY SKIPPED] {flow.request.pretty_url} (Filter: {ignored})")
+                return
 
         # Log that we see RELEVANT traffic
         print(f"[PROXY SEES] {flow.request.method} {flow.request.pretty_url}")
